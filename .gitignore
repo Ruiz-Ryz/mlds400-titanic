@@ -1,0 +1,24 @@
+# Download the competition data locally; never commit it.
+src/data/
+*.csv
+*.zip
+outputs/
+
+# Local Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# R session files and operating-system/editor files
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.env
+*.log
