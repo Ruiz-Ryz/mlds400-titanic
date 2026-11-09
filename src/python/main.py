@@ -76,7 +76,7 @@ def show_preprocessing(model, label):
     prepare = model.named_steps["prepare"]
     medians = prepare.named_transformers_["numeric"].named_steps["imputer"].statistics_
     modes = prepare.named_transformers_["categorical"].named_steps["imputer"].statistics_
-    print(f"[Q14] {label} numeric fill values: {dict(zip(NUMERIC, np.round(medians, 4)))}")
+    print(f"[Q14] {label} numeric fill values: {dict(zip(NUMERIC, np.round(medians, 4).tolist()))}")
     print(f"[Q14] {label} categorical fill values: {dict(zip(CATEGORICAL, modes))}")
 
 
@@ -144,7 +144,10 @@ def main():
         "training_accuracy": float(train_accuracy),
         "validation_accuracy": float(validation_accuracy),
         "test_accuracy": test_accuracy,
-        "test_accuracy_note": "Unavailable for the original Kaggle test.csv because it has no true labels.",
+        "test_accuracy_note": (
+            "Unavailable for the original Kaggle test.csv because it has no true labels."
+            if test_accuracy is None else "Evaluated using the supplied test Survived labels."
+        ),
     }
     (args.output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
     print(f"[Q19] Saved {args.output_dir / 'predictions.csv'} and {args.output_dir / 'metrics.json'}.")
