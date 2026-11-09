@@ -1,0 +1,81 @@
+name: Docker checks
+
+on:
+  push:
+    branches: [feature/r]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, r]
+    steps:
+      - name: Check out the requested branch
+        uses: actions/checkout@v4
+
+      - name: Download temporary verification inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src/data "outputs/${{ matrix.language }}"
+          for file in train.csv test.csv; do
+            curl --fail --location --retry 2 --silent --show-error \
+              "https://raw.githubusercontent.com/ageron/data/0366cd1ba5d538e1fe807e7527d848f9585f9959/titanic/$file" \
+              --output "src/data/$file"
+          done
+          if git ls-files src/data | grep -q .; then
+            echo "ERROR: Input data must not be tracked by Git."
+            exit 1
+          fi
+
+      - name: Build the container
+        run: docker build -f "src/${{ matrix.language }}/Dockerfile" -t "titanic-${{ matrix.language }}" .
+
+      - name: Verify data was not baked into the image
+        run: |
+          docker run --rm --entrypoint sh "titanic-${{ matrix.language }}" \
+            -c 'test ! -f /app/data/train.csv && test ! -f /app/src/data/train.csv'
+
+      - name: Run the complete workflow
+        run: |
+          docker run --rm \
+            --mount "type=bind,source=$(pwd)/src/data,target=/app/data,readonly" \
+            --mount "type=bind,source=$(pwd)/outputs/${{ matrix.language }},target=/app/output" \
+            "titanic-${{ matrix.language }}"
+
+      - name: Check predictions and metrics
+        env:
+          MODEL_LANGUAGE: ${{ matrix.language }}
+        run: |
+          python3 - <<'PY'
+          import csv
+          import json
+          import os
+          from pathlib import Path
+          output = Path('outputs') / os.environ['MODEL_LANGUAGE']
+          with open('src/data/test.csv', newline='') as handle:
+              expected = list(csv.DictReader(handle))
+          with (output / 'predictions.csv').open(newline='') as handle:
+              reader = csv.DictReader(handle)
+              assert reader.fieldnames == ['PassengerId', 'Survived']
+              predictions = list(reader)
+          assert len(predictions) == len(expected) == 418
+          assert [row['PassengerId'] for row in predictions] == [row['PassengerId'] for row in expected]
+          assert all(row['Survived'] in {'0', '1'} for row in predictions)
+          metrics = json.loads((output / 'metrics.json').read_text())
+          assert metrics['training_rows'] == 891
+          assert metrics['validation_fit_rows'] + metrics['validation_rows'] == 891
+          assert metrics['test_rows'] == 418
+          assert 0 <= metrics['training_accuracy'] <= 1
+          assert 0 <= metrics['validation_accuracy'] <= 1
+          assert metrics['test_accuracy'] is None
+          print(json.dumps(metrics, indent=2))
+          print('All container output checks passed.')
+          PY
